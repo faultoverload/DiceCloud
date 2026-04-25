@@ -37,9 +37,11 @@ WORKDIR /home/dicecloud/app
 RUN meteor npm install --production
 RUN meteor build /tmp/bundle --architecture os.linux.x86_64 --server-only
 
-# Unpack the bundle
-RUN mkdir -p /home/dicecloud/bundle \
-  && tar -xzf /tmp/bundle/dicecloud.tar.gz -C /home/dicecloud/bundle --strip-components=1
+# Unpack the bundle - find the tarball by glob in case name differs
+RUN BUNDLE_TAR=$(find /tmp/bundle -name "*.tar.gz" | head -1) \
+  && echo "Found bundle: $BUNDLE_TAR" \
+  && mkdir -p /home/dicecloud/bundle \
+  && tar -xzf "$BUNDLE_TAR" -C /home/dicecloud/bundle --strip-components=1
 
 # Install bundle's npm dependencies (runs inside the unpacked bundle)
 WORKDIR /home/dicecloud/bundle/programs/server
