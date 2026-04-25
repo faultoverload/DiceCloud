@@ -46,11 +46,9 @@ WORKDIR /home/dicecloud/bundle/programs/server
 RUN meteor npm install --production
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM node:14-slim AS runtime
-
-RUN apt-get update -qq && apt-get install -y --no-install-recommends \
-    ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+# node:14-bullseye-slim: Debian 11 base, ca-certificates already included,
+# avoids the EOL Buster repo failures from node:14-slim
+FROM node:14-bullseye-slim AS runtime
 
 RUN useradd -m -s /bin/bash dicecloud
 USER dicecloud
