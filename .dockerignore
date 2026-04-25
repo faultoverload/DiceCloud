@@ -1,0 +1,12 @@
+# DiceCloud self-hosted — files not needed in the Docker build context
+.git
+.github
+.vscode
+*.md
+License.md
+README.md
+docker-compose.yml
+Dockerfile
+# App-level ignores handled by .meteor/.gitignore
+app/.meteor/local
+app/node_modules

@@ -1,0 +1,67 @@
+# DiceCloud Production Dockerfile
+# Multi-stage build: stage 1 builds the Meteor bundle, stage 2 runs it lean.
+#
+# Meteor 2.12 requires Node 14. The bundle is compiled on the build host
+# then unpacked into a minimal runtime image.
+
+# ── Stage 1: Builder ─────────────────────────────────────────────────────────
+FROM ubuntu:22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    bsdtar \
+    python3 \
+    build-essential \
+    ca-certificates \
+  && ln -sf $(which bsdtar) /usr/local/bin/tar \
+  && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for Meteor install (Meteor refuses to install as root)
+RUN useradd -m -s /bin/bash dicecloud
+USER dicecloud
+WORKDIR /home/dicecloud
+
+# Install Meteor 2.12 (pinned to match .meteor/release)
+RUN curl -fsSL https://install.meteor.com/?release=2.12 | sh
+ENV PATH="/home/dicecloud/.meteor:${PATH}"
+
+# Copy app source
+COPY --chown=dicecloud:dicecloud app/ ./app/
+
+WORKDIR /home/dicecloud/app
+
+# Install npm deps and build the Meteor bundle
+RUN meteor npm install --production
+RUN meteor build /tmp/bundle --architecture os.linux.x86_64 --server-only
+
+# Unpack the bundle
+RUN mkdir -p /home/dicecloud/bundle \
+  && tar -xzf /tmp/bundle/dicecloud.tar.gz -C /home/dicecloud/bundle --strip-components=1
+
+# Install bundle's npm dependencies (runs inside the unpacked bundle)
+WORKDIR /home/dicecloud/bundle/programs/server
+RUN meteor npm install --production
+
+# ── Stage 2: Runtime ─────────────────────────────────────────────────────────
+FROM node:14-slim AS runtime
+
+RUN apt-get update -qq && apt-get install -y --no-install-recommends \
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -s /bin/bash dicecloud
+USER dicecloud
+WORKDIR /home/dicecloud/bundle
+
+# Copy built bundle from builder
+COPY --from=builder --chown=dicecloud:dicecloud /home/dicecloud/bundle ./
+
+ENV PORT=3000 \
+    NODE_ENV=production
+
+EXPOSE 3000
+
+CMD ["node", "main.js"]
