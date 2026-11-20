@@ -8,10 +8,19 @@ export default async function bulkWrite<T>(bulkWriteOps, collection: Mongo.Colle
   if (!Meteor.isServer || forceSequential) {
     return writePropertiesSequentially(bulkWriteOps, collection);
   }
-  return collection.rawCollection().bulkWrite(
+  const rawCollection = collection.rawCollection();
+  const result = await rawCollection.bulkWrite(
     bulkWriteOps,
     { ordered: false }
   );
+  // A raw write tells nobody that it happened. Without an oplog to tail, Meteor's observers only
+  // find out on their next poll, up to 10 seconds later. Until then the sheet shows the old
+  // results, and the creature cache still holds the `dirty` flag this write just cleared, so the
+  // next change to the same property isn't seen as newly dirty and is never recomputed.
+  // Ask the observers of this collection to poll now, as a regular collection write would.
+  // @ts-expect-error Meteor.refresh is missing from the Meteor types
+  Meteor.refresh({ collection: rawCollection.collectionName });
+  return result;
 }
 
 // If we re-enable client-side sheet recalculation, this needs to be run on
