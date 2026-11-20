@@ -3,13 +3,15 @@
 # Recipe from https://github.com/arbel-arad/DiceCloud (develop @ 2089275), which produced
 # the image forgejo.spacetime.technology/arbel/dicecloud built 2025-03-25. Changes from
 # that file:
-#   - installs `libarchive-tools` instead of the `bsdtar` package name
+#   - builder is node:16-bookworm-slim instead of node:16-slim, and installs
+#     `libarchive-tools` instead of the `bsdtar` package name
 #   - copies the app source after installing Meteor, so the install layer stays cached
 #   - adds OCI labels
 # See README.md, "Self-hosted Docker image".
 
 # ===== STAGE 1: Meteor builder =====
-FROM node:16-slim AS builder
+# node:16-slim is Debian buster, whose package repositories are gone, hence bookworm
+FROM node:16-bookworm-slim AS builder
 
 ENV METEOR_ALLOW_SUPERUSER=true \
     METEOR_DISABLE_OPTIMISTIC_CACHING=true \
