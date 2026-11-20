@@ -1,4 +1,5 @@
-// End-to-end check that copying library nodes onto a character works.
+// End-to-end check that copying library nodes onto a character works, and that the copied
+// properties behave: point buys, and actions with triggers that remove a buff.
 //
 //   node smoke.mjs ws://host:port/websocket
 //
@@ -184,6 +185,92 @@ check(!!numbered, 'tree numbering is consistent (left < right, children inside t
 const filled = await eventually(() => col('creatureProperties').get(slot._id)?.totalFilled >= 1);
 check(!!filled, 'the Ruleset slot reports itself as filled',
   `totalFilled=${col('creatureProperties').get(slot._id)?.totalFilled}`);
+
+// ── scenario 2: assigning ability scores ─────────────────────────────────────
+// A point buy, and a cut-down copy of the "Standard Array" filler from the community libraries:
+// an action sets a score from a list and moves an index along, and a trigger with a condition
+// removes the whole buff once every score has been handed out.
+const pointBuy = await insertNode({
+  type: 'pointBuy', name: 'Smoke point buy',
+  values: [
+    { name: 'First', variableName: 'smokeFirst', value: 15 },
+    { name: 'Second', variableName: 'smokeSecond', value: 8 },
+    { name: 'Unset', variableName: 'smokeUnset' },
+    { name: 'Fourth', variableName: 'smokeFourth', value: 14 },
+  ],
+  min: { calculation: '8' }, max: { calculation: '15' }, total: { calculation: '27' },
+  cost: { calculation: 'max(value-8, 0) + max(value-13, 0)' },
+}, inLibrary);
+const score = await insertNode({
+  type: 'attribute', name: 'Smoke score', variableName: 'smokeScore', attributeType: 'utility', ignoreUpperLimit: true,
+}, inLibrary);
+const buff = await insertNode({ type: 'buff', name: 'Smoke assign scores', target: 'self' }, inLibrary);
+const index = await insertNode({
+  type: 'attribute', name: 'Smoke index', variableName: 'smokeIndex', attributeType: 'stat',
+  baseValue: { calculation: '1' }, ignoreUpperLimit: true,
+}, under(buff));
+const assign = await insertNode({ type: 'action', name: 'Smoke assign', actionType: 'event', target: 'singleTarget' }, under(buff));
+await insertNode({
+  type: 'adjustment', target: 'self', stat: 'smokeScore', operation: 'set', amount: { calculation: '[15, 14, 13][smokeIndex]' },
+}, under(assign));
+await insertNode({
+  type: 'adjustment', target: 'self', stat: 'smokeIndex', operation: 'increment', amount: { calculation: '-1' }, silent: true,
+}, under(assign));
+const trigger = await insertNode({
+  type: 'trigger', name: 'Smoke all assigned', event: 'damageProperty', timing: 'after', condition: { calculation: 'smokeIndex > 3' },
+}, under(buff));
+await insertNode({ type: 'buffRemover', target: 'target', targetParentBuff: true, removeAll: true }, under(trigger));
+
+await sleep(1100);
+await call('creatureProperties.insertPropertyFromLibraryNode',
+  { nodeIds: [pointBuy, score, buff], parentRef: { id: creatureId, collection: 'creatures' } });
+const copyOf = (nodeId) => copiesOf(nodeId)[0];
+
+// Point buy: 15 costs 9, 8 costs nothing, a row without a value is skipped, 14 costs 7
+const spent = await eventually(() => copyOf(pointBuy)?.spent === 16, 20000);
+const pb = copyOf(pointBuy);
+check(!!spent && pb.pointsLeft === 11 && pb.values.map((row) => row.spent).join() === '9,0,0,7',
+  'a point buy works out what each row costs and how many points are left',
+  `spent=${pb?.spent} pointsLeft=${pb?.pointsLeft} rows=${JSON.stringify(pb?.values?.map((row) => [row.value, row.spent]))}`);
+
+// Each run of the action hands out the next score. The trigger is linked to the scores once the
+// character has been computed, so wait for that before running anything.
+await eventually(() => copyOf(score)?.damageTriggerIds?.after?.length && copyOf(index)?.value === 1, 20000);
+const logOf = (actionId) => [...col('creatureLogs').values()].find((log) => log.actionId === actionId);
+const logged = (actionId) => (logOf(actionId)?.content || []).map((c) => `${c.name || ''}${c.value ? `: ${c.value}` : ''}`);
+async function runAssign() {
+  await sleep(1100);   // actions.insertAction and actions.runAction are rate limited
+  const actionId = await call('actions.insertAction', {
+    action: { creatureId, task: { prop: copyOf(assign), targetIds: [] }, results: [], taskCount: 0 },
+  });
+  await call('actions.runAction', { actionId, decisions: [] });
+  await eventually(() => logOf(actionId), 15000);
+  return actionId;
+}
+const state = () => `score=${copyOf(score)?.value} index=${copyOf(index)?.value} buffRemoved=${!!copyOf(buff)?.removed}`;
+let actionError;
+const runs = [];
+try {
+  for (let i = 0; i < 3; i++) {
+    const actionId = await runAssign();
+    runs.push({ state: state(), log: logged(actionId) });
+  }
+} catch (e) { actionError = e.message; }
+check(!actionError, 'the assign action runs three times', actionError);
+
+check(runs[0]?.state === 'score=15 index=2 buffRemoved=false' && runs[1]?.state === 'score=14 index=3 buffRemoved=false',
+  'each run sets the next score from the list and moves the index along', JSON.stringify(runs.map((r) => r.state)));
+check(runs.length === 3 && runs.slice(0, 2).every((r) => !r.log.some((line) => line.startsWith('Smoke all assigned'))),
+  'a trigger whose condition is false does not fire', JSON.stringify(runs.slice(0, 2).map((r) => r.log)));
+check(!!runs[2]?.log.some((line) => line.startsWith('Smoke all assigned')) && runs[2].log.includes('Removed: Smoke assign scores'),
+  'the trigger fires once its condition is true', JSON.stringify(runs[2]?.log));
+
+// The buff and everything under it is gone from the sheet; the score it handed out stays
+const underBuff = () => [index, assign, trigger].map(copyOf).concat(props().filter((p) => p.parentId === copyOf(assign)?._id || p.parentId === copyOf(trigger)?._id));
+const removed = await eventually(() => copyOf(buff)?.removed === true && underBuff().length === 6 && underBuff().every((p) => p?.removed === true), 15000);
+check(!!removed, 'the buff remover takes the buff and everything under it off the sheet',
+  JSON.stringify([copyOf(buff), ...underBuff()].map((p) => [p?.type, p?.name, !!p?.removed])));
+check(copyOf(score)?.value === 13 && !copyOf(score)?.removed, 'the last score handed out is kept', state());
 
 ws.close();
 if (failures.length) { console.error(`\n${failures.length} check(s) failed`); process.exit(1); }
