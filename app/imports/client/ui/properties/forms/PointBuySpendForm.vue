@@ -93,7 +93,7 @@
 <script lang="js">
 import propertyFormMixin from '/imports/client/ui/properties/forms/shared/propertyFormMixin';
 import CalculationErrorList from '/imports/client/ui/properties/forms/shared/CalculationErrorList.vue';
-import { resolveCalculationNode } from '/imports/api/engine/computation/computeComputation/computeByType/computeCalculation';
+import { resolvePointBuyCost } from '/imports/api/engine/computation/computeComputation/computeByType/computePointBuy';
 import { Tracker } from 'meteor/tracker'
 
 export default {
@@ -117,10 +117,8 @@ export default {
     async dragSlider(row, value) {
       const currentSpent = this.model.spent;
       let newSpent = currentSpent - row.spent;
-      const costFunction = EJSON.clone(row.cost || this.model.cost);
-      if (!costFunction?.parseNode) return;
-      if (costFunction) costFunction.parseLevel = 'reduce';
-      await resolveCalculationNode(costFunction, costFunction.parseNode, { value });
+      const costFunction = await resolvePointBuyCost(row.cost || this.model.cost, { value });
+      if (!costFunction) return;
       if (Number.isFinite(costFunction.value)) {
         newSpent += costFunction.value;
         if (this.useEstimate) this.estimatedCost = newSpent;

@@ -33,15 +33,6 @@ export default function mutationToPropUpdates(mutation: Mutation) {
       insertOne
     });
   }
-  // Remove creature properties
-  if (mutation.removals) for (const removeOne of mutation.removals) {
-    bulkWriteOps.push({
-      deleteOne: {
-        filter: {
-          _id: removeOne.propId
-        },
-      },
-    });
-  }
+  // Removals aren't bulk write operations, writeActionResults removes those properties
   return bulkWriteOps;
 }

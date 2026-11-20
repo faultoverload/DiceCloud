@@ -6,17 +6,20 @@ import CreatureLogs from '/imports/api/creature/log/CreatureLogs';
 import bulkWrite from '/imports/api/engine/shared/bulkWrite';
 import CreatureProperties from '/imports/api/creature/creatureProperties/CreatureProperties';
 import computeCreature from '/imports/api/engine/computeCreature';
+import { softRemove } from '/imports/api/parenting/softRemove';
 
 export default async function writeActionResults(action: EngineAction) {
   if (!action._id) throw new Meteor.Error('type-error', 'Action does not have an _id');
   const engineActionPromise = EngineActions.removeAsync(action._id);
   const creaturePropUpdates: any[] = [];
+  const removedPropIds: string[] = [];
   const logContents: any[] = [];
 
-  // Collect all the updates and log content
+  // Collect all the updates, removals and log content
   action.results.forEach(result => {
     result.mutations.forEach(mutation => {
       creaturePropUpdates.push(...mutationToPropUpdates(mutation));
+      mutation.removals?.forEach(removal => removedPropIds.push(removal.propId));
       logContents.push(...mutationToLogUpdates(mutation));
     });
   });
@@ -35,6 +38,12 @@ export default async function writeActionResults(action: EngineAction) {
   const bulkWritePromise = bulkWrite(creaturePropUpdates, CreatureProperties, true);
 
   await Promise.all([engineActionPromise, logPromise, bulkWritePromise]);
+
+  // Remove properties the same way a user would, along with their descendants
+  uniq(removedPropIds).forEach(propId => {
+    const prop = CreatureProperties.findOne(propId);
+    if (prop && !prop.removed) softRemove(CreatureProperties, prop);
+  });
 
   // Recompute the creatures involved
   const recomputePromises = uniq([action.creatureId, ...allTargetIds]).map(creatureId => computeCreature(creatureId));
