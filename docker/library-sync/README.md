@@ -34,7 +34,9 @@ Image: `ghcr.io/faultoverload/dicecloud-library-sync`, built by
    The file holds a password. Keep it out of git. The container runs as uid 1000 and has to
    be able to read it.
 
-3. **The sidecar**, in the same compose file as the app and its database:
+3. **The sidecar**, in the same compose file as the app and its database. The
+   [main README](../../README.md#quick-start) has a complete compose file with all three
+   services; the part that matters here is:
 
    ```yaml
    services:
