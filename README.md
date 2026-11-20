@@ -87,3 +87,31 @@ Alternatively run `meteor run --settings exampleMeteorSettings.json` to start th
 
 Now, visiting [](http://localhost:3000/) should show you an empty instance of
 DiceCloud running.
+
+Self-hosted Docker image
+------------------------
+
+This fork builds its own image. Every push runs `.github/workflows/docker-image.yml`,
+which builds `Dockerfile`, runs the [library-insert smoke test](docker/smoke-test/README.md)
+against the result, and pushes to GitHub Container Registry only if that test passes.
+
+| Tag | When |
+|---|---|
+| `ghcr.io/faultoverload/dicecloud:latest` | pushes to `develop` |
+| `ghcr.io/faultoverload/dicecloud:<branch>` | pushes to any branch (`/` becomes `-`) |
+| `ghcr.io/faultoverload/dicecloud:sha-<short sha>` | every build |
+
+To build locally:
+
+```bash
+docker build -t dicecloud:local .
+docker/smoke-test/run.sh dicecloud:local
+```
+
+The container listens on port 3000 and needs at least `ROOT_URL`, `MONGO_URL` and
+`METEOR_SETTINGS` from the list above.
+
+`Dockerfile` is the recipe from [arbel-arad/DiceCloud](https://github.com/arbel-arad/DiceCloud),
+which also supplied the pinned AWS SDK versions in `app/package.json` and the matching
+`app/package-lock.json`. The build uses Meteor 2.16 (Node 14) and the runtime stage is
+`node:15-alpine`.
