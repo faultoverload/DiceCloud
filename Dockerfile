@@ -69,7 +69,7 @@ COPY --from=builder --chown=mt:mt /base/dc/bundle /app
 WORKDIR /app/programs/server/
 RUN npm install fibers
 USER root
-RUN apk del python3 make g++ && rm -r /app/.npm /app/.cache
+RUN apk del python3 make g++ && rm -rf /app/.npm /app/.cache
 
 USER mt
 WORKDIR /app
