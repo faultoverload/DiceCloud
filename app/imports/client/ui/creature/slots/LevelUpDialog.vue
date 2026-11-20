@@ -187,8 +187,7 @@ import LibraryNodes from '/imports/api/library/LibraryNodes';
 import DialogBase from '/imports/client/ui/dialogStack/DialogBase.vue';
 import TreeNodeView from '/imports/client/ui/properties/treeNodeViews/TreeNodeView.vue';
 import PropertyDescription from '/imports/client/ui/properties/viewers/shared/PropertyDescription.vue'
-import resolve from '/imports/parser/resolve';
-import { prettifyParseError, parse } from '/imports/parser/parser';
+import getSlotFillerConditionError from '/imports/client/ui/creature/slots/getSlotFillerConditionError';
 import Libraries from '/imports/api/library/Libraries';
 import LibraryNodeExpansionContent from '/imports/client/ui/library/LibraryNodeExpansionContent.vue';
 import PropertyTags from '/imports/client/ui/properties/viewers/shared/PropertyTags.vue';
@@ -224,6 +223,8 @@ export default {
       searchValue: undefined,
       showDisabled: false,
       disabledNodeCount: undefined,
+      // The class levels to show, set by updateLibraryNodes
+      libraryNodes: [],
     }
   },
   reactiveProvide: {
@@ -257,6 +258,9 @@ export default {
     }
   },
   watch: {
+    libraryNodeInputs() {
+      this.updateLibraryNodes();
+    },
     selectedNodeIds(selectedIds, oldSelectedIds) {
       // Skip if we increased the length by adding a new Id, see if we need to backfill levels
       if (oldSelectedIds.length < selectedIds.length) {
@@ -313,6 +317,53 @@ export default {
     },
   },
   methods: {
+    // Slot filler conditions are resolved asynchronously, so the list of class levels can't be
+    // built in a reactive getter. Build it here whenever the inputs it depends on change
+    async updateLibraryNodes() {
+      const inputs = this.libraryNodeInputs;
+      // Only the most recent update gets to set the list
+      this.libraryNodesUpdate = (this.libraryNodesUpdate || 0) + 1;
+      const update = this.libraryNodesUpdate;
+      if (!inputs) {
+        this.libraryNodes = [];
+        return;
+      }
+      const { variables, spaceLeft, alreadyAdded } = inputs;
+      // Work on copies, the fetched nodes belong to the reactive getter
+      const nodes = inputs.nodes.map(node => ({ ...node }));
+      const conditionErrors = await Promise.all(
+        nodes.map(node => getSlotFillerConditionError(node, variables))
+      );
+      if (update !== this.libraryNodesUpdate) return;
+
+      let disabledNodeCount = 0;
+      // Mark classFillers whose condition isn't met or are too big to fit
+      // the quantity to fill
+      nodes.forEach((node, index) => {
+        if (node.cache?.node) {
+          node.level = node.cache.node.level;
+        }
+        const conditionError = conditionErrors[index];
+        if (conditionError !== undefined) {
+          node._disabledBySlotFillerCondition = true;
+          node._conditionError = conditionError;
+          disabledNodeCount += 1;
+        }
+        let quantityToFill = node.type === 'slotFiller' ? node.slotQuantityFilled : 1;
+        if (
+          quantityToFill > spaceLeft
+        ) {
+          node._disabledByQuantityFilled = true;
+        }
+        if (alreadyAdded.has(node._id)) {
+          node._disabledByAlreadyAdded = true;
+        }
+      });
+      nodes.sort((a, b) => a.level - b.level);
+      this.disabledNodeCount = disabledNodeCount;
+      // Frozen like the results of the reactive getters are, the nodes aren't changed again
+      this.libraryNodes = Object.freeze(nodes);
+    },
     loadMore() {
       if (this.currentLimit >= this.countAll) return;
       this._subs['classFillers'].setData('limit', this.currentLimit + 50);
@@ -416,55 +467,18 @@ export default {
       if (!filterString) return;
       return EJSON.parse(filterString);
     },
-    libraryNodes() {
-      if (!this.libraryNodeFilter) return [];
-      if (!this.$subReady.classFillers) return [];
-      let nodes = LibraryNodes.find(this.libraryNodeFilter, {
-        sort: { level: 1, name: 1, order: 1 }
-      }).fetch();
-      let disabledNodeCount = 0;
-      // Mark classFillers whose condition isn't met or are too big to fit
-      // the quantity to fill
-      nodes.forEach(node => {
-        if (node.cache?.node) {
-          node.level = node.cache.node.level;
-        }
-        if (node.slotFillerCondition) {
-          try {
-            let parseNode = parse(node.slotFillerCondition);
-            const { result: resultNode } = resolve('reduce', parseNode, this.variables);
-            if (resultNode?.parseType === 'constant') {
-              if (!resultNode.value) {
-                node._disabledBySlotFillerCondition = true;
-                node._conditionError = node.slotFillerConditionNote || node.slotFillerCondition;
-                disabledNodeCount += 1;
-              }
-            } else {
-              node._disabledBySlotFillerCondition = true;
-              node._conditionError = node.slotFillerConditionNote || toString(resultNode);
-              disabledNodeCount += 1;
-            }
-          } catch (e) {
-            console.warn(e);
-            let error = prettifyParseError(e);
-            node._disabledBySlotFillerCondition = true;
-            node._conditionError = 'Condition error: ' + error;
-            disabledNodeCount += 1;
-          }
-        }
-        let quantityToFill = node.type === 'slotFiller' ? node.slotQuantityFilled : 1;
-        if (
-          quantityToFill > this.spaceLeft
-        ) {
-          node._disabledByQuantityFilled = true;
-        }
-        if (this.alreadyAdded.has(node._id)) {
-          node._disabledByAlreadyAdded = true;
-        }
-      });
-      nodes.sort((a, b) => a.level - b.level);
-      this.disabledNodeCount = disabledNodeCount;
-      return nodes;
+    // Everything the list of class levels is built from, undefined while they are loading
+    libraryNodeInputs() {
+      if (!this.libraryNodeFilter) return;
+      if (!this.$subReady.classFillers) return;
+      return {
+        nodes: LibraryNodes.find(this.libraryNodeFilter, {
+          sort: { level: 1, name: 1, order: 1 }
+        }).fetch(),
+        variables: this.variables,
+        spaceLeft: this.spaceLeft,
+        alreadyAdded: this.alreadyAdded,
+      };
     },
   }
 }

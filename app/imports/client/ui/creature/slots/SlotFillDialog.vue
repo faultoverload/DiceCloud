@@ -239,8 +239,7 @@ import LibraryNodes from '/imports/api/library/LibraryNodes';
 import DialogBase from '/imports/client/ui/dialogStack/DialogBase.vue';
 import TreeNodeView from '/imports/client/ui/properties/treeNodeViews/TreeNodeView.vue';
 import PropertyDescription from '/imports/client/ui/properties/viewers/shared/PropertyDescription.vue'
-import resolve, { toString } from '/imports/parser/resolve';
-import { prettifyParseError, parse } from '/imports/parser/parser';
+import getSlotFillerConditionError from '/imports/client/ui/creature/slots/getSlotFillerConditionError';
 import Libraries from '/imports/api/library/Libraries';
 import LibraryNodeExpansionContent from '/imports/client/ui/library/LibraryNodeExpansionContent.vue';
 import PropertyTags from '/imports/client/ui/properties/viewers/shared/PropertyTags.vue';
@@ -280,6 +279,8 @@ export default {
       showDisabled: false,
       disabledNodeCount: undefined,
       autoSelectRan: false,
+      // The fillers to show, set by updateLibraryNodes
+      libraryNodes: [],
     }
   },
   reactiveProvide: {
@@ -312,6 +313,9 @@ export default {
     },
   },
   watch: {
+    libraryNodeInputs() {
+      this.updateLibraryNodes();
+    },
     activeCount(val) {
       // Still loading fillers
       if (!this._subs['slotFillers'].ready()) return;
@@ -325,6 +329,64 @@ export default {
     },
   },
   methods: {
+    // Slot filler conditions are resolved asynchronously, so the list of fillers can't be built
+    // in a reactive getter. Build it here whenever the inputs it depends on change
+    async updateLibraryNodes() {
+      const inputs = this.libraryNodeInputs;
+      // Only the most recent update gets to set the list
+      this.libraryNodesUpdate = (this.libraryNodesUpdate || 0) + 1;
+      const update = this.libraryNodesUpdate;
+      if (!inputs) {
+        this.libraryNodes = [];
+        return;
+      }
+      const { variables, spaceLeft, alreadyAdded } = inputs;
+      // Work on copies, the fetched nodes belong to the reactive getter
+      const nodes = inputs.nodes.map(node => ({ ...node }));
+      const conditionErrors = await Promise.all(
+        nodes.map(node => getSlotFillerConditionError(node, variables))
+      );
+      if (update !== this.libraryNodesUpdate) return;
+
+      let disabledNodeCount = 0;
+      // Mark slotFillers whose condition isn't met or are too big to fit
+      // the quantity to fill
+      nodes.forEach((node, index) => {
+        const conditionError = conditionErrors[index];
+        if (conditionError !== undefined) {
+          node._disabled = true;
+          node._disabledBySlotFillerCondition = true;
+          node._conditionError = conditionError;
+          disabledNodeCount += 1;
+        }
+        let quantityToFill = typeof node.slotQuantityFilled == 'number' ? node.slotQuantityFilled : 1;
+        if (
+          quantityToFill > spaceLeft
+        ) {
+          node._disabled = true;
+          node._disabledByQuantityFilled = true;
+        }
+        if (alreadyAdded.has(node._id)) {
+          node._disabled = true;
+          node._disabledByAlreadyAdded = true;
+        }
+      });
+      // Only run the auto-select once
+      if (!this.autoSelectRan) {
+        this.autoSelectRan = true;
+        // If we have exactly one active node and no selected nodes, pre-select it
+        if (
+          nodes.length === 1
+          && !nodes[0]._disabled
+          && !this.selectedNodeIds?.length
+        ) {
+          this.selectedNodeIds = [nodes[0]._id];
+        }
+      }
+      this.disabledNodeCount = disabledNodeCount;
+      // Frozen like the results of the reactive getters are, the nodes aren't changed again
+      this.libraryNodes = Object.freeze(nodes);
+    },
     loadMore() {
       if (this.currentLimit >= this.countAll) return;
       this._subs['slotFillers'].setData('limit', this.currentLimit + 50);
@@ -468,68 +530,18 @@ export default {
       Libraries.find().forEach(lib => names[lib._id] = lib.name)
       return names;
     },
-    libraryNodes() {
-      if (!this.libraryNodeFilter) return [];
-      if (!this.$subReady.slotFillers) return [];
-      let nodes = LibraryNodes.find(this.libraryNodeFilter, {
-        sort: { name: 1, order: 1 }
-      }).fetch();
-      let disabledNodeCount = 0;
-      // Mark slotFillers whose condition isn't met or are too big to fit
-      // the quantity to fill
-      nodes.forEach(node => {
-        if (node.slotFillerCondition) {
-          try {
-            let parseNode = parse(node.slotFillerCondition);
-            const { result: resultNode } = resolve('reduce', parseNode, this.variables);
-            if (resultNode?.parseType === 'constant') {
-              if (!resultNode.value) {
-                node._disabled = true;
-                node._disabledBySlotFillerCondition = true;
-                node._conditionError = node.slotFillerConditionNote || node.slotFillerCondition;
-                disabledNodeCount += 1;
-              }
-            } else {
-              node._disabled = true;
-              node._disabledBySlotFillerCondition = true;
-              node._conditionError = node.slotFillerConditionNote || toString(resultNode);
-              disabledNodeCount += 1;
-            }
-          } catch (e) {
-            console.warn(e);
-            let error = prettifyParseError(e);
-            node._disabled = true;
-            node._disabledBySlotFillerCondition = true;
-            node._conditionError = 'Condition error: '+ error;
-            disabledNodeCount += 1;
-          }
-        }
-        let quantityToFill = typeof node.slotQuantityFilled == 'number' ? node.slotQuantityFilled : 1;
-        if (
-          quantityToFill > this.spaceLeft
-        ) {
-          node._disabled = true;
-          node._disabledByQuantityFilled = true;
-        }
-        if (this.alreadyAdded.has(node._id)) {
-          node._disabled = true;
-          node._disabledByAlreadyAdded = true;
-        }
-      });
-      // Only run the auto-select once
-      if (!this.autoSelectRan) {
-        this.autoSelectRan = true;
-        // If we have exactly one active node and no selected nodes, pre-select it
-        if (
-          nodes.length === 1
-          && !nodes[0]._disabled
-          && !this.selectedNodeIds?.length
-        ) {
-          this.selectedNodeIds = [nodes[0]._id];
-        }
-      }
-      this.disabledNodeCount = disabledNodeCount;
-      return nodes;
+    // Everything the list of fillers is built from, undefined while the fillers are loading
+    libraryNodeInputs() {
+      if (!this.libraryNodeFilter) return;
+      if (!this.$subReady.slotFillers) return;
+      return {
+        nodes: LibraryNodes.find(this.libraryNodeFilter, {
+          sort: { name: 1, order: 1 }
+        }).fetch(),
+        variables: this.variables,
+        spaceLeft: this.spaceLeft,
+        alreadyAdded: this.alreadyAdded,
+      };
     },
     selectedExcludedNodes() {
       const displayedIds = this.libraryNodes.map(node => node._id);

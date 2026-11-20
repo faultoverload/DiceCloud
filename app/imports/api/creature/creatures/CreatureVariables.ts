@@ -2,6 +2,7 @@ import { getSingleProperty } from '/imports/api/engine/loadCreatures';
 import ParseNode from '/imports/parser/parseTree/ParseNode';
 import array from '/imports/parser/parseTree/array';
 import constant, { isFiniteNode } from '/imports/parser/parseTree/constant';
+import { parse } from '/imports/parser/parser';
 
 //set up the collection for creature variables
 const CreatureVariables = new Mongo.Collection('creatureVariables');
@@ -36,9 +37,23 @@ export function getFromScope(name: string, scope) {
     value = getSingleProperty(scope._creatureId, propId);
     if (rowIdentifier === 'row' && value?.type === 'pointBuy') {
       value = value.values[rowNumber];
+    } else if (value?.type === 'constant' && value.value === undefined) {
+      // The value of a constant is only set on the property in memory while the creature is
+      // being computed, it isn't stored. Work it out again from the stored calculation
+      value.value = getConstantValue(value.calculation);
     }
   }
   return value;
+}
+
+function getConstantValue(calculation?: string): ParseNode | undefined {
+  if (!calculation) return;
+  try {
+    return parse(calculation);
+  } catch (e) {
+    // The parse error is already stored on the constant
+    return;
+  }
 }
 
 export function getNumberFromScope(name, scope) {
