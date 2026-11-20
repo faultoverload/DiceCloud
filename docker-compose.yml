@@ -24,3 +24,14 @@ services:
       - MAIL_URL=smtp://EMAIL:PASSWORD@SERVER:PORT
     ports:
       - '3000:3000' #The internal port should match the port set in the environmental variables
+    volumes:
+      #Images that users upload and archived characters are files, not database records.
+      #Without these they are lost whenever the container is replaced.
+      #Named volumes rather than folders: the app runs as a non-root user and cannot
+      #write to a folder that Docker creates.
+      - user-images:/app/programs/server/assets/app/userImages
+      - archived-characters:/app/programs/server/assets/app/archiveCreatures
+
+volumes:
+  user-images:
+  archived-characters:

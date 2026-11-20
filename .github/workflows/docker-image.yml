@@ -6,7 +6,8 @@ name: Docker image
 on:
   push:
     branches: ['**']
-    paths-ignore: ['**.md']
+    # The library sync sidecar has its own workflow
+    paths-ignore: ['**.md', 'docker/library-sync/**', '.github/workflows/library-sync-image.yml']
   workflow_dispatch:
 
 permissions:

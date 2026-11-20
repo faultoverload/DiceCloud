@@ -1,0 +1,3 @@
+node_modules
+# a real config holds a password
+config.yml
