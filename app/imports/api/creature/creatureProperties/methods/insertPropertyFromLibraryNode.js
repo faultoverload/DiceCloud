@@ -50,7 +50,8 @@ const insertPropertyFromLibraryNode = new ValidatedMethod({
     assertEditPermission(rootCreature, this.userId);
 
     const root = { collection: 'creatures', id: rootCreature._id };
-    const parentId = parentRef.id;
+    // Only another property can be a parent, properties at the top level have none
+    const parentId = parentRef.collection === 'creatureProperties' ? parentRef.id : undefined;
 
     let node;
     nodeIds.forEach(nodeId => {
@@ -94,8 +95,11 @@ function insertPropertyFromNode(nodeId, root, parentId) {
 
   // Convert all references into actual nodes
   nodes = reifyNodeReferences(nodes);
-  // Refetch the root node, it might have been reified
-  node = nodes[0] || node;
+  // Refetch the root node, it might have been reified. A reified node takes the id of
+  // the reference it replaces, so the root is still found by the id that was asked for
+  node = nodes.find(doc => doc._id === nodeId) || node;
+  // Keep it first in the array so that it gets the first generated ID
+  nodes = [node, ...nodes.filter(doc => doc !== node)];
 
   // set libraryNodeIds
   storeLibraryNodeReferences(nodes);
@@ -105,6 +109,18 @@ function insertPropertyFromNode(nodeId, root, parentId) {
     docArray: nodes,
     collectionMap: { 'libraryNodes': 'creatureProperties' }
   });
+
+  // The docs were fetched from their libraries, move them all to the creature
+  nodes.forEach(doc => {
+    doc.root = { ...root };
+  });
+
+  // Put the root node under the requested parent, its descendants already follow it
+  if (parentId) {
+    node.parentId = parentId;
+  } else {
+    delete node.parentId;
+  }
 
   // Mark root node as dirty
   node.dirty = true;
@@ -191,6 +207,19 @@ export function reifyNodeReferences(nodes, visitedRefs = new Set(), depth = 0) {
       docArray: addedNodes,
       idMap: { [referencedNode._id]: node._id },
     });
+
+    // The referenced subtree takes the place of the reference: same root, same parent
+    // and the same position among its siblings
+    addedNodes.forEach(addedNode => {
+      addedNode.root = { ...node.root };
+    });
+    if (node.parentId) {
+      referencedNode.parentId = node.parentId;
+    } else {
+      delete referencedNode.parentId;
+    }
+    referencedNode.left = node.left;
+    referencedNode.right = node.right;
 
     // Reify the subtree as well with recursion
     addedNodes = reifyNodeReferences(addedNodes, visitedRefs, depth);
