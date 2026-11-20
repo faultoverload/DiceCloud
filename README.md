@@ -61,6 +61,9 @@ services:
       PORT: "3000"
       MONGO_URL: mongodb://meteor:${MONGO_PASSWORD}@dicecloud-db:27017/meteor?authSource=admin
       METEOR_SETTINGS: '{"public":{"environment":"production","disablePatreon":true}}'
+    volumes:
+      - user-images:/app/programs/server/assets/app/userImages
+      - archived-characters:/app/programs/server/assets/app/archiveCreatures
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
       interval: 15s
@@ -78,6 +81,10 @@ services:
       MONGO_URL: mongodb://meteor:${MONGO_PASSWORD}@dicecloud-db:27017/meteor?authSource=admin
     volumes:
       - ./library-sync.yml:/config/config.yml:ro
+
+volumes:
+  user-images:
+  archived-characters:
 ```
 
 **3. Create `.env`** next to it, with a database password of your own. Use letters and
@@ -177,7 +184,7 @@ What it copies, how updates work, and what it deliberately leaves alone are desc
 docker compose logs -f dicecloud      # app log
 docker compose pull                   # fetch newer images
 docker compose up -d                  # apply them
-docker compose down                   # stop; data stays in ./data
+docker compose down                   # stop; the database stays in ./data, uploads in their volumes
 ```
 
 `:latest` follows the `develop` branch of this repository. To stay on one build, use a
@@ -201,24 +208,21 @@ docker compose start dicecloud dicecloud-library-sync
 
 ### Uploaded files
 
-Images that users upload and archived characters are files, not database records. The app
-stores them inside its own container, so they are lost whenever the container is replaced,
-which every update does. To keep them, give the app two folders owned by its user (id 1001):
+Images that users upload and archived characters are files, not database records. The
+compose file keeps them in two Docker volumes, `user-images` and `archived-characters`, so
+they survive updates.
+
+- They are volumes rather than folders next to the compose file because the app runs as a
+  non-root user (id 1001) and cannot write to a folder that Docker creates.
+- `docker compose down -v` deletes them. Plain `down` does not.
 
 ```bash
-mkdir -p data/userImages data/archiveCreatures
-sudo chown 1001:1001 data/userImages data/archiveCreatures
+# backup
+docker compose exec -T dicecloud tar -C /app/programs/server/assets/app -czf - userImages archiveCreatures > dicecloud-uploads.tar.gz
+
+# restore
+docker compose exec -T dicecloud tar -C /app/programs/server/assets/app -xzf - < dicecloud-uploads.tar.gz
 ```
-
-and add them to the `dicecloud` service:
-
-```yaml
-    volumes:
-      - ./data/userImages:/app/programs/server/assets/app/userImages
-      - ./data/archiveCreatures:/app/programs/server/assets/app/archiveCreatures
-```
-
-If the folders belong to another user, the app still starts but cannot save files.
 
 ### Behind a reverse proxy
 
@@ -264,8 +268,8 @@ which also supplied the pinned AWS SDK versions in `app/package.json` and the ma
 `app/package-lock.json`. The build uses Meteor 2.16, and both it and the runtime stage
 (`node:14-alpine`) run Node 14.
 
-The `docker-compose.yml` in the root of this repository builds the app from source. The
-quick start above does not use it.
+The `docker-compose.yml` in the root of this repository builds the app from source and
+keeps uploads in the same two volumes. The quick start above does not use it.
 
 ## What this fork changes
 

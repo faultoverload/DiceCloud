@@ -73,6 +73,10 @@ RUN apk del python3 make g++ && rm -rf /app/.npm /app/.cache
 
 USER mt
 WORKDIR /app
+# Uploaded images and archived characters are stored in these two folders, which the app
+# would otherwise create at start. Having them in the image, owned by the app user, means a
+# named volume mounted on them starts out writable. Docker creates a missing mount point as root.
+RUN mkdir -p programs/server/assets/app/userImages programs/server/assets/app/archiveCreatures
 EXPOSE 3000
 
 CMD ["node", "--trace-warnings", "main.js"]
