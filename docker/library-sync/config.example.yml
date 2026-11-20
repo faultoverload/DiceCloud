@@ -1,0 +1,34 @@
+# Copy to config.yml, fill in, and mount it at /config/config.yml.
+# It holds a password: keep it out of git and readable only by you (chmod 600 is fine when
+# the file is owned by uid 1000, the user the container runs as; otherwise 644 in a private directory).
+
+source:
+  # The DiceCloud account to read with. Any free account works; libraries are only visible
+  # to logged-in users. DICECLOUD_USERNAME / DICECLOUD_PASSWORD, when set, win over these.
+  username: your-dicecloud-username
+  password: your-dicecloud-password
+  # url: wss://dicecloud.com/websocket    # the default
+  # throttle_ms: 400                      # pause between requests; the default, minimum 250
+
+target:
+  # The self-hosted DiceCloud database: the same value the app has in MONGO_URL.
+  # MONGO_URL, when set, wins over this.
+  mongo_url: mongodb://meteor:password@dicecloud-db:27017/meteor?authSource=admin
+
+# What to copy. Either the word "all":
+#   everything on https://dicecloud.com/community-libraries, plus every library that a
+#   collection on that page lists
+libraries: all
+# or a list of library and collection ids. The id is the last part of the page address:
+#   https://dicecloud.com/library/<id>   https://dicecloud.com/library-collection/<id>
+# A collection brings all of its libraries with it. Ids or whole links both work.
+# libraries:
+#   - jp6xTaHDZK4ELYzvN                                     # collection: Libraries of Vexus (5e2014)
+#   - https://dicecloud.com/library/hAQmc87ty6DbWwZ42       # library: DiceCloud 5th Edition SRD
+
+schedule:
+  # Stay running and sync again this often, to pick up changes: 12h, 7d, 2w (minimum 1h).
+  # Leave out, or set to 0, to sync once and exit.
+  interval: 7d
+
+# dry_run: true     # fetch and compare, report what would change, write nothing

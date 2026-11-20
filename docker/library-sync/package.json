@@ -1,0 +1,20 @@
+{
+  "name": "dicecloud-library-sync",
+  "version": "1.0.0",
+  "description": "Copies community libraries from dicecloud.com into a self-hosted DiceCloud database and keeps them up to date",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/sync.mjs",
+    "test": "node --test \"test/unit/*.test.mjs\"",
+    "test:integration": "test/run.sh"
+  },
+  "dependencies": {
+    "mongodb": "^7.2.0",
+    "yaml": "^2.8.0"
+  },
+  "devDependencies": {
+    "ws": "^8.18.0"
+  }
+}

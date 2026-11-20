@@ -115,3 +115,12 @@ The container listens on port 3000 and needs at least `ROOT_URL`, `MONGO_URL` an
 which also supplied the pinned AWS SDK versions in `app/package.json` and the matching
 `app/package-lock.json`. The build uses Meteor 2.16 and both it and the runtime stage
 (`node:14-alpine`) run Node 14.
+
+Community libraries
+-------------------
+
+A new instance has no libraries, and DiceCloud has no way to export them. The
+[library sync sidecar](docker/library-sync/README.md) copies the community libraries from
+dicecloud.com into a self-hosted database and keeps them up to date. It is a second
+container next to the app, configured with one file, published as
+`ghcr.io/faultoverload/dicecloud-library-sync`.
