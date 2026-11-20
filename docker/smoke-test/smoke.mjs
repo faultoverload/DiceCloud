@@ -272,6 +272,35 @@ check(!!removed, 'the buff remover takes the buff and everything under it off th
   JSON.stringify([copyOf(buff), ...underBuff()].map((p) => [p?.type, p?.name, !!p?.removed])));
 check(copyOf(score)?.value === 13 && !copyOf(score)?.removed, 'the last score handed out is kept', state());
 
+// ── scenario 3: changing the same property several times in a row ────────────
+// Three changes a couple of seconds apart, the way someone works down a column of sliders, sent
+// with the same call the sheet makes. Every change has to be recomputed, not only the first, and
+// the result has to reach the sheet without waiting for the server's next 10 second database poll.
+const pointBuyId = copyOf(pointBuy)._id;
+let editError;
+let lastEdit;
+for (const value of [9, 10, 11]) {
+  if (lastEdit) await sleep(2000);
+  try {
+    await call('creatureProperties.update', { _id: pointBuyId, path: ['values', 1, 'value'], value });
+  } catch (e) {
+    editError = e.reason || e.message;
+  }
+  lastEdit = Date.now();
+}
+check(!editError, 'a point buy row can be changed three times', editError);
+// 30 seconds is three polls: a result that is merely late still arrives, one that was never computed does not
+const recomputed = await eventually(() => {
+  const p = copyOf(pointBuy);
+  return p?.values[1].spent === 3 && p.spent === 19 && p.pointsLeft === 8 && (Date.now() - lastEdit);
+}, 30000);
+const edited = copyOf(pointBuy);
+const editedState = `rows=${JSON.stringify(edited?.values?.map((row) => [row.value, row.spent]))} spent=${edited?.spent} `
+  + `pointsLeft=${edited?.pointsLeft} dirty=${edited?.dirty}`;
+check(!!recomputed, 'the third change in a row is recomputed (11 costs 3, 19 spent, 8 left)', editedState);
+check(!!recomputed && recomputed < 5000, 'the recomputed cost reaches the sheet within 5 seconds',
+  recomputed ? `took ${recomputed} ms` : 'never arrived');
+
 ws.close();
 if (failures.length) { console.error(`\n${failures.length} check(s) failed`); process.exit(1); }
 console.log('\nALL CHECKS PASSED');
