@@ -113,5 +113,5 @@ The container listens on port 3000 and needs at least `ROOT_URL`, `MONGO_URL` an
 
 `Dockerfile` is the recipe from [arbel-arad/DiceCloud](https://github.com/arbel-arad/DiceCloud),
 which also supplied the pinned AWS SDK versions in `app/package.json` and the matching
-`app/package-lock.json`. The build uses Meteor 2.16 (Node 14) and the runtime stage is
-`node:15-alpine`.
+`app/package-lock.json`. The build uses Meteor 2.16 and both it and the runtime stage
+(`node:14-alpine`) run Node 14.

@@ -5,6 +5,7 @@
 # that file:
 #   - builder is node:16-bookworm-slim instead of node:16-slim, and installs
 #     `libarchive-tools` instead of the `bsdtar` package name
+#   - runtime is node:14-alpine instead of node:15-alpine
 #   - copies the app source after installing Meteor, so the install layer stays cached
 #   - adds OCI labels
 # See README.md, "Self-hosted Docker image".
@@ -51,7 +52,9 @@ RUN npm install && npm ci --omit=dev && npm uninstall fibers && \
     find . -type d -name "tests" -exec rm -rf {} + && npm cache clean --force
 
 # ===== STAGE 2: Runtime =====
-FROM node:15-alpine AS runtime
+# Node 14 is what Meteor 2.16 targets. The original recipe ran on node:15-alpine, which
+# cannot load the `node:assert` import that develop now has in server code.
+FROM node:14-alpine AS runtime
 
 LABEL org.opencontainers.image.title="DiceCloud" \
       org.opencontainers.image.description="DiceCloud v2 self-hosted build" \
